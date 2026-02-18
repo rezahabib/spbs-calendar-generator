@@ -1,0 +1,14 @@
+# Database credentials - NEVER commit these
+banner_config.py
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+
+# Output files
+*.html
+*.json
+
+# macOS
+.DS_Store
