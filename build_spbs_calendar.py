@@ -890,7 +890,7 @@ html = '''<!DOCTYPE html>
     </body>
 </html>'''
 
-with open('/home/claude/SPBS202620ScheduleFall.html', 'w', encoding='utf-8') as f:
+with open('SPBS202620ScheduleFall.html', 'w', encoding='utf-8') as f:
     f.write(html)
 
 print(f"Written: {len(html)} chars")
