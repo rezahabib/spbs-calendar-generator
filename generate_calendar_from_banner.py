@@ -93,7 +93,12 @@ def assemble_days(row):
         ('SATURDAY_IND', 'Saturday'),
         ('SUNDAY_IND', 'Sunday')
     ]
-    days = [name for col, name in day_map if row.get(col, '').strip()]
+    days = []
+    for col, name in day_map:
+        val = row.get(col, '')
+        # Handle None, empty string, or any truthy value
+        if val and str(val).strip():
+            days.append(name)
     return ','.join(days)
 
 def should_include(subject, number, section, meeting_time, building):
