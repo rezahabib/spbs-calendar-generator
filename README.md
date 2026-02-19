@@ -346,8 +346,8 @@ sqlplus username/password@database @Course_Schedule_for_Calendar.sql
 Associate Professor & Director, School of Psychological and Behavioral Sciences  
 Southern Illinois University Carbondale
 
-- 📧 Email: [reza.habib@gmail.edu](mailto:reza.habib@gmail.edu)
-- 💼 LinkedIn: [linkedin.com/in/reza-habib](https://linkedin.com/in/reza-habib)
+- 📧 Email: [reza.habib@gmail.com](mailto:reza.habib@gmail.com)
+- 💼 LinkedIn: [linkedin.com/in/reza-habib](https://linkedin.com/in/rezahabib)
 - 🔗 Portfolio: [github.com/rezahabib](https://github.com/rezahabib)
 
 **Background:**
