@@ -347,7 +347,7 @@ Associate Professor & Director, School of Psychological and Behavioral Sciences
 Southern Illinois University Carbondale
 
 - 📧 Email: [reza.habib@gmail.com](mailto:reza.habib@gmail.com)
-- 💼 LinkedIn: [linkedin.com/in/reza-habib](https://linkedin.com/in/rezahabib)
+- 💼 LinkedIn: [linkedin.com/in/rezahabib](https://linkedin.com/in/rezahabib)
 - 🔗 Portfolio: [github.com/rezahabib](https://github.com/rezahabib)
 
 **Background:**
