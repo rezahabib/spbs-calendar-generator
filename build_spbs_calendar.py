@@ -337,7 +337,7 @@ html = '''<!DOCTYPE html>
                     <label><input type="checkbox" data-role="level" value="500" checked />500</label>
                 </div>
                 <div class="filter-row search-box" data-prefix="psyc">
-                    <input type="text" data-role="search" placeholder="Search: 331, 44* (wildcard), title, instructor..." />
+                    <input type="text" data-role="search" placeholder="Search: 331, 33? or 44* (wildcards), title..." />
                     <div class="filter-actions">
                         <button class="btn" data-role="showall">Show all</button>
                         <button class="btn" data-role="reset">Reset</button>
@@ -414,7 +414,7 @@ html = '''<!DOCTYPE html>
                     <label><input type="checkbox" data-role="level" value="500" checked />500</label>
                 </div>
                 <div class="filter-row search-box" data-prefix="bat">
-                    <input type="text" data-role="search" placeholder="Search: 503, 5* (wildcard), title, instructor..." />
+                    <input type="text" data-role="search" placeholder="Search: 503, 5?? or 5* (wildcards), title..." />
                     <div class="filter-actions">
                         <button class="btn" data-role="showall">Show all</button>
                         <button class="btn" data-role="reset">Reset</button>
@@ -492,7 +492,7 @@ html = '''<!DOCTYPE html>
                     <label><input type="checkbox" data-role="level" value="500" checked />500</label>
                 </div>
                 <div class="filter-row search-box" data-prefix="care">
-                    <input type="text" data-role="search" placeholder="Search: 500, 5* (wildcard), title, instructor..." />
+                    <input type="text" data-role="search" placeholder="Search: 500, 5?? or 5* (wildcards), title..." />
                     <div class="filter-actions">
                         <button class="btn" data-role="showall">Show all</button>
                         <button class="btn" data-role="reset">Reset</button>
@@ -733,27 +733,41 @@ html = '''<!DOCTYPE html>
             modal.addEventListener("click", (e) => { if (e.target === modal) modal.classList.remove("open"); });
             document.addEventListener("keydown", (e) => { if (e.key === "Escape") modal.classList.remove("open"); });
 
-            // Wildcard search helper
+            // Wildcard search helper - supports * (any chars) and ? (one char)
             function wildcardMatch(text, pattern) {
                 // No wildcards - use simple substring match
                 if (pattern.indexOf('*') === -1 && pattern.indexOf('?') === -1) {
                     return text.includes(pattern);
                 }
                 
-                // Split pattern by * and check each part exists in order
-                const parts = pattern.split('*');
-                let lastIndex = 0;
+                // Convert wildcards to regex, escaping special chars
+                let regexPattern = pattern;
                 
-                for (let i = 0; i < parts.length; i++) {
-                    const part = parts[i];
-                    if (!part) continue; // empty part from consecutive **
-                    
-                    const idx = text.indexOf(part, lastIndex);
-                    if (idx === -1) return false;
-                    lastIndex = idx + part.length;
+                // First escape all regex special characters except * and ?
+                regexPattern = regexPattern.replace(/\./g, '\\.');
+                regexPattern = regexPattern.replace(/\+/g, '\\+');
+                regexPattern = regexPattern.replace(/\^/g, '\\^');
+                regexPattern = regexPattern.replace(/\$/g, '\\$');
+                regexPattern = regexPattern.replace(/\{/g, '\\{');
+                regexPattern = regexPattern.replace(/\}/g, '\\}');
+                regexPattern = regexPattern.replace(/\(/g, '\\(');
+                regexPattern = regexPattern.replace(/\)/g, '\\)');
+                regexPattern = regexPattern.replace(/\|/g, '\\|');
+                regexPattern = regexPattern.replace(/\[/g, '\\[');
+                regexPattern = regexPattern.replace(/\]/g, '\\]');
+                
+                // Now convert wildcards to regex patterns
+                regexPattern = regexPattern.replace(/\*/g, '.*');
+                regexPattern = regexPattern.replace(/\?/g, '.');
+                
+                // Match as substring (not anchored to start/end)
+                try {
+                    const regex = new RegExp(regexPattern, 'i');
+                    return regex.test(text);
+                } catch (e) {
+                    // Fallback to simple includes if regex fails
+                    return text.includes(pattern.replace(/[*?]/g, ''));
                 }
-                
-                return true;
             }
 
             // Data sources - Grid courses (with meeting times)
