@@ -32,7 +32,9 @@ def merge_crosslisted(course_list):
             combined_number = ' / '.join(f"{g['subject']} {g['number']}" for g in grp)
             combined_section = ' / '.join(g['section'] for g in grp)
             combined_crn = ' / '.join(g['crn'] for g in grp)
-            combined_instructor = ' / '.join(g['instructor'] for g in grp if g['instructor']) or ''
+            # Only show unique instructors (same instructor teaches all cross-listed sections)
+            unique_instructors = list(dict.fromkeys(g['instructor'] for g in grp if g['instructor']))
+            combined_instructor = ' / '.join(unique_instructors)
             merged.append({
                 'title': combined_title,
                 'subject': base['subject'],
