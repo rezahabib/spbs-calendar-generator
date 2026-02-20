@@ -903,13 +903,24 @@ html = '''<!DOCTYPE html>
                     return;
                 }
                 
-                // Apply search filter to async courses
-                const searchTerm = state[prefix].search.toLowerCase();
-                const filtered = searchTerm ? asyncSource.filter(course => {
-                    const hay = [`${course.subject} ${course.number}`, course.number, course.title, course.instructor]
-                        .map(x => (x || "").toLowerCase()).join(" ");
-                    return wildcardMatch(hay, searchTerm);
-                }) : asyncSource;
+                const st = state[prefix];
+                const searchTerm = st.search.toLowerCase();
+                
+                // Apply both level filter and search filter to async courses
+                const filtered = asyncSource.filter(course => {
+                    // Level filter
+                    const lvl = levelOf(course.number);
+                    if (lvl && !st.levels.has(lvl)) return false;
+                    
+                    // Search filter
+                    if (searchTerm) {
+                        const hay = [`${course.subject} ${course.number}`, course.number, course.title, course.instructor]
+                            .map(x => (x || "").toLowerCase()).join(" ");
+                        if (!wildcardMatch(hay, searchTerm)) return false;
+                    }
+                    
+                    return true;
+                });
                 
                 if (filtered.length === 0) {
                     asyncSection.style.display = "none";
