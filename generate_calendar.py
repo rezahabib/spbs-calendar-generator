@@ -113,19 +113,25 @@ def assemble_days(row):
     return ','.join(days)
 
 def should_include(subject, number, section, meeting_time, building):
-    """Apply filtering rules"""
+    """Apply filtering rules - returns (include, is_async)"""
     sec_num = int(section) if section.isdigit() else 0
     
+    # Exclude 700-799 except BAT 595-713
     if 700 <= sec_num <= 799:
         if subject == 'BAT' and number in ['595'] and section == '713':
             pass
         else:
-            return False
+            return False, False
     
+    # Online async courses (900-999 with no meeting time)
+    if 900 <= sec_num <= 999 and not meeting_time:
+        return True, True  # Include but mark as async
+    
+    # Exclude courses with no meeting time (unless they're online async above)
     if not meeting_time:
-        return False
+        return False, False
     
-    return True
+    return True, False  # Include on regular grid
 
 def format_instructor(first, last):
     """Format instructor name"""
@@ -173,11 +179,14 @@ for row in banner_data:
         continue
     
     section = row['OFFERING_NUMBER'].strip()
-    meeting_time = str(row['BEGIN_TIME']).strip() if row['BEGIN_TIME'] else ''
+    # Handle None/NULL from database properly - don't convert to 'None' string
+    begin_time_val = row['BEGIN_TIME']
+    meeting_time = str(begin_time_val).strip() if begin_time_val not in (None, '') else ''
     building = row['BUILDING'].strip() if row['BUILDING'] else ''
     room = row['ROOM'].strip() if row['ROOM'] else ''
     
-    if not should_include(subject, number, section, meeting_time, building):
+    include, is_async = should_include(subject, number, section, meeting_time, building)
+    if not include:
         continue
     
     if subject == 'PSYC' and number == '569':
@@ -188,11 +197,12 @@ for row in banner_data:
         building = ""
         room = ""
     
-    start_time = format_time(meeting_time)
+    start_time = format_time(meeting_time) if meeting_time else ''
     end_time = format_time(str(row['END_TIME']).strip() if row['END_TIME'] else '')
     days = assemble_days(row)
     
-    if not start_time or not days:
+    # Skip courses that should have time/days but don't (not async)
+    if not is_async and (not start_time or not days):
         continue
     
     instructor = format_instructor(
@@ -239,7 +249,8 @@ for row in banner_data:
             'endDate': str(row['END_DATE']).split()[0] if row['END_DATE'] else ''
         },
         'campus': 'Carbondale',
-        'scheduleType': row['INSTRUCTION_METHOD_DESC'].strip()
+        'scheduleType': row['INSTRUCTION_METHOD_DESC'].strip(),
+        'isAsync': is_async
     }
     courses.append(course)
 
@@ -272,7 +283,8 @@ if psyc211_sections:
                 'endDate': lecture_meeting['endDate']
             },
             'campus': 'Carbondale',
-            'scheduleType': lecture_meeting['scheduleType']
+            'scheduleType': lecture_meeting['scheduleType'],
+            'isAsync': False
         })
     
     for sec, meetings in sorted(psyc211_sections.items()):
@@ -297,7 +309,8 @@ if psyc211_sections:
                     'endDate': lab['endDate']
                 },
                 'campus': 'Carbondale',
-                'scheduleType': lab['scheduleType']
+                'scheduleType': lab['scheduleType'],
+                'isAsync': False
             })
 
 print(f"  Extracted {len(courses)} courses:")
@@ -306,7 +319,8 @@ print(f"    BAT: {len([c for c in courses if c['subject'] == 'BAT'])}")
 print(f"    CARE: {len([c for c in courses if c['subject'] == 'CARE'])}")
 
 # Save intermediate JSON
-with open('/tmp/fall2026_courses.json', 'w') as f:
+json_filename = f'courses_{TERM_CODE}.json'
+with open(json_filename, 'w') as f:
     json.dump(courses, f, indent=2)
 
 # =============================================================================
@@ -318,17 +332,19 @@ print("\nStep 3: Building HTML calendar...")
 # Import and run the builder
 try:
     import build_spbs_calendar
+    output_filename = f'SPBS{TERM_CODE}Schedule.html'
     print(f"\n✓ Calendar generated successfully!")
-    print(f"  Output: SPBS202620ScheduleFall.html")
+    print(f"  Output: {output_filename}")
     print(f"  Open in browser to view")
     
 except ImportError:
     print("  Running builder directly...")
     import subprocess
-    result = subprocess.run([sys.executable, 'build_spbs_calendar.py'])
+    output_filename = f'SPBS{TERM_CODE}Schedule.html'
+    result = subprocess.run([sys.executable, 'build_spbs_calendar.py', TERM_CODE])
     if result.returncode == 0:
         print(f"\n✓ Calendar generated successfully!")
-        print(f"  Output: SPBS202620ScheduleFall.html")
+        print(f"  Output: {output_filename}")
     else:
         print("\nError building calendar")
         sys.exit(1)

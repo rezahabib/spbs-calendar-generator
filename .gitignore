@@ -1,14 +1,20 @@
-# Database credentials - NEVER commit these
-banner_config.py
+# Intermediate JSON data files (generated from Banner)
+courses_*.json
 
-# Python
+# Generated HTML calendar files
+SPBS*Schedule*.html
+
+# Python cache
 __pycache__/
 *.pyc
 *.pyo
 
-# Output files
-*.html
-*.json
+# Banner database configuration (contains credentials)
+banner_config.py
 
 # macOS
 .DS_Store
+
+# IDE
+.vscode/
+.idea/

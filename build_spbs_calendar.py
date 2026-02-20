@@ -1,6 +1,11 @@
 import json, re
+import sys
 
-with open('/tmp/fall2026_courses.json') as f:
+# Get term code from command line or use default
+TERM_CODE = sys.argv[1] if len(sys.argv) > 1 else '202660'
+json_filename = f'courses_{TERM_CODE}.json'
+
+with open(json_filename) as f:
     courses = json.load(f)
 
 def js_str(s):
@@ -21,7 +26,9 @@ def merge_crosslisted(course_list):
             merged.append(grp[0])
         else:
             base = grp[0]
-            combined_title = ' / '.join(g['title'] for g in grp)
+            # Only show unique titles (avoid "Intro Psych / Intro Psych" for same-titled cross-listings)
+            unique_titles = list(dict.fromkeys(g['title'] for g in grp))
+            combined_title = ' / '.join(unique_titles)
             combined_number = ' / '.join(f"{g['subject']} {g['number']}" for g in grp)
             combined_section = ' / '.join(g['section'] for g in grp)
             combined_crn = ' / '.join(g['crn'] for g in grp)
@@ -42,26 +49,38 @@ def merge_crosslisted(course_list):
     return merged
 
 def make_source(prefix):
+    """Generate JavaScript source for both grid and async courses"""
     filtered = [c for c in courses if c['subject'] == prefix.upper()]
-    filtered = merge_crosslisted(filtered)
-    lines = []
-    for c in filtered:
+    
+    # Separate async courses BEFORE merging
+    # (Async courses can't be reliably cross-listed without meeting times)
+    grid_courses = [c for c in filtered if not c.get('isAsync', False)]
+    async_courses = [c for c in filtered if c.get('isAsync', False)]
+    
+    # Only merge grid courses
+    grid_courses = merge_crosslisted(grid_courses)
+    
+    def format_course(c):
         m = c['meeting']
-        line = (
+        return (
             f'{{ title: "{js_str(c["title"])}", subject: "{c["subject"]}", number: "{js_str(c["number"])}", '
             f'section: "{js_str(c["section"])}", crn: "{js_str(c["crn"])}", credits: "{c["credits"]}", '
             f'term: "Fall 2026", instructor: "{js_str(c["instructor"])}", '
             f'meeting: {{ days: "{m["days"]}", start: "{m["start"]}", end: "{m["end"]}", '
             f'building: "{js_str(m["building"])}", room: "{m["room"]}", '
             f'startDate: "{m["startDate"]}", endDate: "{m["endDate"]}" }}, '
-            f'campus: "{js_str(c["campus"])}", scheduleType: "{c["scheduleType"]}" }}'
+            f'campus: "{js_str(c["campus"])}", scheduleType: "{c["scheduleType"]}", '
+            f'isAsync: {str(c.get("isAsync", False)).lower()} }}'
         )
-        lines.append('                ' + line)
-    return ',\n'.join(lines)
+    
+    grid_lines = [' ' * 16 + format_course(c) for c in grid_courses]
+    async_lines = [' ' * 16 + format_course(c) for c in async_courses]
+    
+    return ',\n'.join(grid_lines), ',\n'.join(async_lines)
 
-psyc_src = make_source('psyc')
-bat_src = make_source('bat')
-care_src = make_source('care')
+psyc_grid, psyc_async = make_source('psyc')
+bat_grid, bat_async = make_source('bat')
+care_grid, care_async = make_source('care')
 
 html = '''<!DOCTYPE html>
 <html lang="en">
@@ -95,32 +114,36 @@ html = '''<!DOCTYPE html>
                 --control-bg: #f8fafc;
                 --control-border: #e5e7eb;
                 --control-text: #0f172a;
+                --hover: #f1f5f9;
             }
             @media (prefers-color-scheme: dark) {
                 :root {
-                    --bg: #0b1020;
+                    --bg: #1e1e1e;
                     --text: #e5e7eb;
                     --muted: #9ca3af;
-                    --line: #283044;
+                    --line: #3a3a3a;
                     --shadow: 0 10px 30px rgba(0,0,0,0.4);
-                    --panel: #0f172a;
+                    --panel: #282828;
                     --modal-backdrop: rgba(0,0,0,0.55);
-                    --modal-bg: #0f172a;
+                    --modal-bg: #282828;
                     --meta: #e2e8f0;
-                    --tab: #111827;
+                    --tab: #252525;
                     --tab-active: #2563eb;
                     --tab-active-border: #1d4ed8;
                     --tab-text: #e5e7eb;
                     --tab-active-text: #ffffff;
-                    --header-bg: #111827;
-                    --chip-bg: #0b1020;
-                    --notice-bg: #0b1020;
-                    --event-text: #111827;
-                    --event-border-alpha: 0.18;
-                    --control-bg: #111827;
-                    --control-border: #283044;
+                    --header-bg: #252525;
+                    --chip-bg: #1e1e1e;
+                    --notice-bg: #1e1e1e;
+                    --event-text: #1e1e1e;
+                    --event-border-alpha: 0.25;
+                    --control-bg: #252525;
+                    --control-border: #3a3a3a;
                     --control-text: #e5e7eb;
+                    --hover: #323232;
                 }
+                .event { opacity: 0.85; }
+                .event:hover { opacity: 1; }
             }
 
             html, body { margin: 0; padding: 0; height: 100%; background: var(--bg); color: var(--text);
@@ -216,11 +239,59 @@ html = '''<!DOCTYPE html>
             .notice { padding: 10px 16px; background: var(--notice-bg); border-top: 1px solid var(--line);
                 font-size: 12px; color: var(--muted); }
 
+            .cal-content-wrapper { display: flex; gap: 24px; align-items: flex-start; }
+            .calendar-container { flex: 1; min-width: 0; }
+            
+            .async-section { 
+                width: 320px; 
+                flex-shrink: 0;
+                position: sticky;
+                top: 20px;
+                max-height: calc(100vh - 40px);
+                overflow-y: auto;
+            }
+            .async-section h3 { 
+                font-size: 16px; 
+                font-weight: 700; 
+                margin: 0 0 12px 0; 
+                color: var(--text);
+                padding: 12px 16px;
+                background: var(--panel);
+                border: 1px solid var(--line);
+                border-radius: 8px 8px 0 0;
+            }
+            .async-list { 
+                display: flex; 
+                flex-direction: column; 
+                gap: 8px;
+            }
+            .async-item { 
+                padding: 12px 16px; 
+                background: var(--panel); 
+                border: 1px solid var(--line); 
+                border-radius: 8px; 
+                cursor: pointer; 
+                transition: all 0.2s ease;
+            }
+            .async-item:hover { 
+                background: var(--hover); 
+                box-shadow: 0 2px 8px rgba(0,0,0,0.1); 
+                transform: translateX(-2px);
+            }
+            .async-item-title { font-size: 13px; font-weight: 700; color: var(--text); margin-bottom: 4px; }
+            .async-item-meta { font-size: 12px; color: var(--muted); }
+
             @media (max-width: 900px) {
                 .calendar-grid { grid-template-columns: 50px repeat(5, 1fr); }
                 .filters { grid-template-columns: 1fr; }
                 .modal-body { grid-template-columns: 1fr; }
                 .event .meta { white-space: normal; }
+                .cal-content-wrapper { flex-direction: column; }
+                .async-section { 
+                    width: 100%; 
+                    position: static;
+                    max-height: none;
+                }
             }
         </style>
     </head>
@@ -264,10 +335,9 @@ html = '''<!DOCTYPE html>
                     <label><input type="checkbox" data-role="level" value="300" checked />300</label>
                     <label><input type="checkbox" data-role="level" value="400" checked />400</label>
                     <label><input type="checkbox" data-role="level" value="500" checked />500</label>
-                    <label><input type="checkbox" data-role="distance" checked />Include distance/off-campus</label>
                 </div>
                 <div class="filter-row search-box" data-prefix="psyc">
-                    <input type="text" data-role="search" placeholder="Search by course number (e.g., 331), title, or instructor..." />
+                    <input type="text" data-role="search" placeholder="Search: 331, 44* (wildcard), title, instructor..." />
                     <div class="filter-actions">
                         <button class="btn" data-role="showall">Show all</button>
                         <button class="btn" data-role="reset">Reset</button>
@@ -278,37 +348,45 @@ html = '''<!DOCTYPE html>
 
             <!-- Psychology Calendar -->
             <section id="cal-psyc" class="cal-wrap active" aria-labelledby="tab-psyc">
-                <div class="calendar">
-                    <div class="calendar-grid">
-                        <div class="cell header">Time</div>
-                        <div class="cell header">Monday</div>
-                        <div class="cell header">Tuesday</div>
-                        <div class="cell header">Wednesday</div>
-                        <div class="cell header">Thursday</div>
-                        <div class="cell header">Friday</div>
-                        <div class="cell time-col">
-                            <div class="time-slot"><span class="time-label">8:00 AM</span></div>
-                            <div class="time-slot"><span class="time-label">9:00 AM</span></div>
-                            <div class="time-slot"><span class="time-label">10:00 AM</span></div>
-                            <div class="time-slot"><span class="time-label">11:00 AM</span></div>
-                            <div class="time-slot"><span class="time-label">12:00 PM</span></div>
-                            <div class="time-slot"><span class="time-label">1:00 PM</span></div>
-                            <div class="time-slot"><span class="time-label">2:00 PM</span></div>
-                            <div class="time-slot"><span class="time-label">3:00 PM</span></div>
-                            <div class="time-slot"><span class="time-label">4:00 PM</span></div>
-                            <div class="time-slot"><span class="time-label">5:00 PM</span></div>
-                            <div class="time-slot"><span class="time-label">6:00 PM</span></div>
-                            <div class="time-slot"><span class="time-label">7:00 PM</span></div>
-                            <div class="time-slot"><span class="time-label">8:00 PM</span></div>
+                <div class="cal-content-wrapper">
+                    <div class="calendar-container">
+                        <div class="calendar">
+                            <div class="calendar-grid">
+                                <div class="cell header">Time</div>
+                                <div class="cell header">Monday</div>
+                                <div class="cell header">Tuesday</div>
+                                <div class="cell header">Wednesday</div>
+                                <div class="cell header">Thursday</div>
+                                <div class="cell header">Friday</div>
+                                <div class="cell time-col">
+                                    <div class="time-slot"><span class="time-label">8:00 AM</span></div>
+                                    <div class="time-slot"><span class="time-label">9:00 AM</span></div>
+                                    <div class="time-slot"><span class="time-label">10:00 AM</span></div>
+                                    <div class="time-slot"><span class="time-label">11:00 AM</span></div>
+                                    <div class="time-slot"><span class="time-label">12:00 PM</span></div>
+                                    <div class="time-slot"><span class="time-label">1:00 PM</span></div>
+                                    <div class="time-slot"><span class="time-label">2:00 PM</span></div>
+                                    <div class="time-slot"><span class="time-label">3:00 PM</span></div>
+                                    <div class="time-slot"><span class="time-label">4:00 PM</span></div>
+                                    <div class="time-slot"><span class="time-label">5:00 PM</span></div>
+                                    <div class="time-slot"><span class="time-label">6:00 PM</span></div>
+                                    <div class="time-slot"><span class="time-label">7:00 PM</span></div>
+                                    <div class="time-slot"><span class="time-label">8:00 PM</span></div>
+                                </div>
+                                <div class="cell day-col"><div class="day-body" id="psyc-Monday"></div></div>
+                                <div class="cell day-col"><div class="day-body" id="psyc-Tuesday"></div></div>
+                                <div class="cell day-col"><div class="day-body" id="psyc-Wednesday"></div></div>
+                                <div class="cell day-col"><div class="day-body" id="psyc-Thursday"></div></div>
+                                <div class="cell day-col"><div class="day-body" id="psyc-Friday"></div></div>
+                            </div>
+                            <div class="notice">
+                                Use the filters above to refine by day, time, level, distance/off-campus, or search by number/title/instructor.
+                            </div>
                         </div>
-                        <div class="cell day-col"><div class="day-body" id="psyc-Monday"></div></div>
-                        <div class="cell day-col"><div class="day-body" id="psyc-Tuesday"></div></div>
-                        <div class="cell day-col"><div class="day-body" id="psyc-Wednesday"></div></div>
-                        <div class="cell day-col"><div class="day-body" id="psyc-Thursday"></div></div>
-                        <div class="cell day-col"><div class="day-body" id="psyc-Friday"></div></div>
                     </div>
-                    <div class="notice">
-                        Use the filters above to refine by day, time, level, distance/off-campus, or search by number/title/instructor.
+                    <div class="async-section" id="psyc-async-section" style="display: none;">
+                        <h3>Online Asynchronous</h3>
+                        <div class="async-list" id="psyc-async-list"></div>
                     </div>
                 </div>
             </section>
@@ -334,10 +412,9 @@ html = '''<!DOCTYPE html>
                     <label>Levels:</label>
                     <label><input type="checkbox" data-role="level" value="200" checked />200</label>
                     <label><input type="checkbox" data-role="level" value="500" checked />500</label>
-                    <label><input type="checkbox" data-role="distance" checked />Include distance/off-campus</label>
                 </div>
                 <div class="filter-row search-box" data-prefix="bat">
-                    <input type="text" data-role="search" placeholder="Search by course number (e.g., 503), title, or instructor..." />
+                    <input type="text" data-role="search" placeholder="Search: 503, 5* (wildcard), title, instructor..." />
                     <div class="filter-actions">
                         <button class="btn" data-role="showall">Show all</button>
                         <button class="btn" data-role="reset">Reset</button>
@@ -348,37 +425,45 @@ html = '''<!DOCTYPE html>
 
             <!-- BAT Calendar -->
             <section id="cal-bat" class="cal-wrap" aria-labelledby="tab-bat">
-                <div class="calendar">
-                    <div class="calendar-grid">
-                        <div class="cell header">Time</div>
-                        <div class="cell header">Monday</div>
-                        <div class="cell header">Tuesday</div>
-                        <div class="cell header">Wednesday</div>
-                        <div class="cell header">Thursday</div>
-                        <div class="cell header">Friday</div>
-                        <div class="cell time-col">
-                            <div class="time-slot"><span class="time-label">8:00 AM</span></div>
-                            <div class="time-slot"><span class="time-label">9:00 AM</span></div>
-                            <div class="time-slot"><span class="time-label">10:00 AM</span></div>
-                            <div class="time-slot"><span class="time-label">11:00 AM</span></div>
-                            <div class="time-slot"><span class="time-label">12:00 PM</span></div>
-                            <div class="time-slot"><span class="time-label">1:00 PM</span></div>
-                            <div class="time-slot"><span class="time-label">2:00 PM</span></div>
-                            <div class="time-slot"><span class="time-label">3:00 PM</span></div>
-                            <div class="time-slot"><span class="time-label">4:00 PM</span></div>
-                            <div class="time-slot"><span class="time-label">5:00 PM</span></div>
-                            <div class="time-slot"><span class="time-label">6:00 PM</span></div>
-                            <div class="time-slot"><span class="time-label">7:00 PM</span></div>
-                            <div class="time-slot"><span class="time-label">8:00 PM</span></div>
+                <div class="cal-content-wrapper">
+                    <div class="calendar-container">
+                        <div class="calendar">
+                            <div class="calendar-grid">
+                                <div class="cell header">Time</div>
+                                <div class="cell header">Monday</div>
+                                <div class="cell header">Tuesday</div>
+                                <div class="cell header">Wednesday</div>
+                                <div class="cell header">Thursday</div>
+                                <div class="cell header">Friday</div>
+                                <div class="cell time-col">
+                                    <div class="time-slot"><span class="time-label">8:00 AM</span></div>
+                                    <div class="time-slot"><span class="time-label">9:00 AM</span></div>
+                                    <div class="time-slot"><span class="time-label">10:00 AM</span></div>
+                                    <div class="time-slot"><span class="time-label">11:00 AM</span></div>
+                                    <div class="time-slot"><span class="time-label">12:00 PM</span></div>
+                                    <div class="time-slot"><span class="time-label">1:00 PM</span></div>
+                                    <div class="time-slot"><span class="time-label">2:00 PM</span></div>
+                                    <div class="time-slot"><span class="time-label">3:00 PM</span></div>
+                                    <div class="time-slot"><span class="time-label">4:00 PM</span></div>
+                                    <div class="time-slot"><span class="time-label">5:00 PM</span></div>
+                                    <div class="time-slot"><span class="time-label">6:00 PM</span></div>
+                                    <div class="time-slot"><span class="time-label">7:00 PM</span></div>
+                                    <div class="time-slot"><span class="time-label">8:00 PM</span></div>
+                                </div>
+                                <div class="cell day-col"><div class="day-body" id="bat-Monday"></div></div>
+                                <div class="cell day-col"><div class="day-body" id="bat-Tuesday"></div></div>
+                                <div class="cell day-col"><div class="day-body" id="bat-Wednesday"></div></div>
+                                <div class="cell day-col"><div class="day-body" id="bat-Thursday"></div></div>
+                                <div class="cell day-col"><div class="day-body" id="bat-Friday"></div></div>
+                            </div>
+                            <div class="notice">
+                                Use the filters above to refine by day, time, level, distance/off-campus, or search by number/title/instructor.
+                            </div>
                         </div>
-                        <div class="cell day-col"><div class="day-body" id="bat-Monday"></div></div>
-                        <div class="cell day-col"><div class="day-body" id="bat-Tuesday"></div></div>
-                        <div class="cell day-col"><div class="day-body" id="bat-Wednesday"></div></div>
-                        <div class="cell day-col"><div class="day-body" id="bat-Thursday"></div></div>
-                        <div class="cell day-col"><div class="day-body" id="bat-Friday"></div></div>
                     </div>
-                    <div class="notice">
-                        Use the filters above to refine by day, time, level, distance/off-campus, or search by number/title/instructor.
+                    <div class="async-section" id="bat-async-section" style="display: none;">
+                        <h3>Online Asynchronous</h3>
+                        <div class="async-list" id="bat-async-list"></div>
                     </div>
                 </div>
             </section>
@@ -405,10 +490,9 @@ html = '''<!DOCTYPE html>
                     <label><input type="checkbox" data-role="level" value="200" checked />200</label>
                     <label><input type="checkbox" data-role="level" value="400" checked />400</label>
                     <label><input type="checkbox" data-role="level" value="500" checked />500</label>
-                    <label><input type="checkbox" data-role="distance" checked />Include distance/off-campus</label>
                 </div>
                 <div class="filter-row search-box" data-prefix="care">
-                    <input type="text" data-role="search" placeholder="Search by course number (e.g., 500), title, or instructor..." />
+                    <input type="text" data-role="search" placeholder="Search: 500, 5* (wildcard), title, instructor..." />
                     <div class="filter-actions">
                         <button class="btn" data-role="showall">Show all</button>
                         <button class="btn" data-role="reset">Reset</button>
@@ -419,37 +503,45 @@ html = '''<!DOCTYPE html>
 
             <!-- CARE Calendar -->
             <section id="cal-care" class="cal-wrap" aria-labelledby="tab-care">
-                <div class="calendar">
-                    <div class="calendar-grid">
-                        <div class="cell header">Time</div>
-                        <div class="cell header">Monday</div>
-                        <div class="cell header">Tuesday</div>
-                        <div class="cell header">Wednesday</div>
-                        <div class="cell header">Thursday</div>
-                        <div class="cell header">Friday</div>
-                        <div class="cell time-col">
-                            <div class="time-slot"><span class="time-label">8:00 AM</span></div>
-                            <div class="time-slot"><span class="time-label">9:00 AM</span></div>
-                            <div class="time-slot"><span class="time-label">10:00 AM</span></div>
-                            <div class="time-slot"><span class="time-label">11:00 AM</span></div>
-                            <div class="time-slot"><span class="time-label">12:00 PM</span></div>
-                            <div class="time-slot"><span class="time-label">1:00 PM</span></div>
-                            <div class="time-slot"><span class="time-label">2:00 PM</span></div>
-                            <div class="time-slot"><span class="time-label">3:00 PM</span></div>
-                            <div class="time-slot"><span class="time-label">4:00 PM</span></div>
-                            <div class="time-slot"><span class="time-label">5:00 PM</span></div>
-                            <div class="time-slot"><span class="time-label">6:00 PM</span></div>
-                            <div class="time-slot"><span class="time-label">7:00 PM</span></div>
-                            <div class="time-slot"><span class="time-label">8:00 PM</span></div>
+                <div class="cal-content-wrapper">
+                    <div class="calendar-container">
+                        <div class="calendar">
+                            <div class="calendar-grid">
+                                <div class="cell header">Time</div>
+                                <div class="cell header">Monday</div>
+                                <div class="cell header">Tuesday</div>
+                                <div class="cell header">Wednesday</div>
+                                <div class="cell header">Thursday</div>
+                                <div class="cell header">Friday</div>
+                                <div class="cell time-col">
+                                    <div class="time-slot"><span class="time-label">8:00 AM</span></div>
+                                    <div class="time-slot"><span class="time-label">9:00 AM</span></div>
+                                    <div class="time-slot"><span class="time-label">10:00 AM</span></div>
+                                    <div class="time-slot"><span class="time-label">11:00 AM</span></div>
+                                    <div class="time-slot"><span class="time-label">12:00 PM</span></div>
+                                    <div class="time-slot"><span class="time-label">1:00 PM</span></div>
+                                    <div class="time-slot"><span class="time-label">2:00 PM</span></div>
+                                    <div class="time-slot"><span class="time-label">3:00 PM</span></div>
+                                    <div class="time-slot"><span class="time-label">4:00 PM</span></div>
+                                    <div class="time-slot"><span class="time-label">5:00 PM</span></div>
+                                    <div class="time-slot"><span class="time-label">6:00 PM</span></div>
+                                    <div class="time-slot"><span class="time-label">7:00 PM</span></div>
+                                    <div class="time-slot"><span class="time-label">8:00 PM</span></div>
+                                </div>
+                                <div class="cell day-col"><div class="day-body" id="care-Monday"></div></div>
+                                <div class="cell day-col"><div class="day-body" id="care-Tuesday"></div></div>
+                                <div class="cell day-col"><div class="day-body" id="care-Wednesday"></div></div>
+                                <div class="cell day-col"><div class="day-body" id="care-Thursday"></div></div>
+                                <div class="cell day-col"><div class="day-body" id="care-Friday"></div></div>
+                            </div>
+                            <div class="notice">
+                                Use the filters above to refine by day, time, level, distance/off-campus, or search by number/title/instructor.
+                            </div>
                         </div>
-                        <div class="cell day-col"><div class="day-body" id="care-Monday"></div></div>
-                        <div class="cell day-col"><div class="day-body" id="care-Tuesday"></div></div>
-                        <div class="cell day-col"><div class="day-body" id="care-Wednesday"></div></div>
-                        <div class="cell day-col"><div class="day-body" id="care-Thursday"></div></div>
-                        <div class="cell day-col"><div class="day-body" id="care-Friday"></div></div>
                     </div>
-                    <div class="notice">
-                        Use the filters above to refine by day, time, level, distance/off-campus, or search by number/title/instructor.
+                    <div class="async-section" id="care-async-section" style="display: none;">
+                        <h3>Online Asynchronous</h3>
+                        <div class="async-list" id="care-async-list"></div>
                     </div>
                 </div>
             </section>
@@ -641,17 +733,53 @@ html = '''<!DOCTYPE html>
             modal.addEventListener("click", (e) => { if (e.target === modal) modal.classList.remove("open"); });
             document.addEventListener("keydown", (e) => { if (e.key === "Escape") modal.classList.remove("open"); });
 
-            // Data sources
+            // Wildcard search helper
+            function wildcardMatch(text, pattern) {
+                // No wildcards - use simple substring match
+                if (pattern.indexOf('*') === -1 && pattern.indexOf('?') === -1) {
+                    return text.includes(pattern);
+                }
+                
+                // Split pattern by * and check each part exists in order
+                const parts = pattern.split('*');
+                let lastIndex = 0;
+                
+                for (let i = 0; i < parts.length; i++) {
+                    const part = parts[i];
+                    if (!part) continue; // empty part from consecutive **
+                    
+                    const idx = text.indexOf(part, lastIndex);
+                    if (idx === -1) return false;
+                    lastIndex = idx + part.length;
+                }
+                
+                return true;
+            }
+
+            // Data sources - Grid courses (with meeting times)
             const PSYC_SOURCE = [
-''' + psyc_src + '''
+''' + psyc_grid + '''
             ];
 
             const BAT_SOURCE = [
-''' + bat_src + '''
+''' + bat_grid + '''
             ];
 
             const CARE_SOURCE = [
-''' + care_src + '''
+''' + care_grid + '''
+            ];
+
+            // Async online courses (no meeting times)
+            const PSYC_ASYNC = [
+''' + psyc_async + '''
+            ];
+
+            const BAT_ASYNC = [
+''' + bat_async + '''
+            ];
+
+            const CARE_ASYNC = [
+''' + care_async + '''
             ];
 
             function expandTimed(source, prefix) {
@@ -698,16 +826,10 @@ html = '''<!DOCTYPE html>
             };
 
             const state = {
-                psyc: { days: new Set(dayIds), startHour: 8, endHour: 21, levels: new Set([100,200,300,400,500]), includeDistance: true, search: "" },
-                bat:  { days: new Set(dayIds), startHour: 8, endHour: 21, levels: new Set([200,500]),             includeDistance: true, search: "" },
-                care: { days: new Set(dayIds), startHour: 8, endHour: 21, levels: new Set([200,400,500]),         includeDistance: true, search: "" }
+                psyc: { days: new Set(dayIds), startHour: 8, endHour: 21, levels: new Set([100,200,300,400,500]), search: "" },
+                bat:  { days: new Set(dayIds), startHour: 8, endHour: 21, levels: new Set([200,500]),             search: "" },
+                care: { days: new Set(dayIds), startHour: 8, endHour: 21, levels: new Set([200,400,500]),         search: "" }
             };
-
-            function isDistance(ev) {
-                const campus = (ev.campus || "").toLowerCase();
-                const bld = (ev.building || "").toLowerCase();
-                return campus.includes("distance") || bld.includes("off-campus");
-            }
 
             function applyFilters(prefix, allEvents) {
                 const st = state[prefix];
@@ -718,11 +840,10 @@ html = '''<!DOCTYPE html>
                     if (s < st.startHour || e > st.endHour) return false;
                     const lvl = levelOf(ev.number);
                     if (lvl && !st.levels.has(lvl)) return false;
-                    if (!st.includeDistance && isDistance(ev)) return false;
                     if (q) {
                         const hay = [`${ev.subject} ${ev.number}`, ev.number, ev.title, ev.instructor]
                             .filter(Boolean).join(" ").toLowerCase();
-                        if (!hay.includes(q)) return false;
+                        if (!wildcardMatch(hay, q)) return false;
                     }
                     return true;
                 });
@@ -748,6 +869,109 @@ html = '''<!DOCTYPE html>
             function renderCalendar(prefix) {
                 const filtered = applyFilters(prefix, allTimedFor(prefix));
                 layoutIntoColumns(filtered, prefix);
+                renderAsyncCourses(prefix);
+            }
+
+            function renderAsyncCourses(prefix) {
+                const asyncSection = document.getElementById(`${prefix}-async-section`);
+                const asyncList = document.getElementById(`${prefix}-async-list`);
+                
+                // Get async courses for this prefix
+                let asyncSource = [];
+                if (prefix === "psyc") asyncSource = PSYC_ASYNC;
+                else if (prefix === "bat") asyncSource = BAT_ASYNC;
+                else if (prefix === "care") asyncSource = CARE_ASYNC;
+                
+                if (asyncSource.length === 0) {
+                    asyncSection.style.display = "none";
+                    return;
+                }
+                
+                // Apply search filter to async courses
+                const searchTerm = state[prefix].search.toLowerCase();
+                const filtered = searchTerm ? asyncSource.filter(course => {
+                    const hay = [`${course.subject} ${course.number}`, course.number, course.title, course.instructor]
+                        .map(x => (x || "").toLowerCase()).join(" ");
+                    return wildcardMatch(hay, searchTerm);
+                }) : asyncSource;
+                
+                if (filtered.length === 0) {
+                    asyncSection.style.display = "none";
+                    return;
+                }
+                
+                asyncSection.style.display = "block";
+                asyncList.innerHTML = "";
+                
+                filtered.forEach(course => {
+                    const item = document.createElement("div");
+                    item.className = "async-item";
+                    item.innerHTML = `
+                        <div class="async-item-title">${course.subject} ${course.number} — ${course.title}</div>
+                        <div class="async-item-meta">
+                            ${course.section ? `Section ${course.section} • ` : ""}${course.credits} credits
+                            ${course.instructor ? ` • ${course.instructor}` : ""}
+                        </div>
+                    `;
+                    
+                    // Convert course to event format for modal
+                    const eventData = {
+                        subject: course.subject,
+                        number: course.number,
+                        title: course.title,
+                        section: course.section,
+                        crn: course.crn,
+                        credits: course.credits,
+                        day: "Asynchronous",
+                        startTime: "—",
+                        endTime: "—",
+                        building: course.meeting.building || "—",
+                        room: course.meeting.room || "—",
+                        instructor: course.instructor || "—",
+                        campus: course.campus,
+                        startDate: course.meeting.startDate,
+                        endDate: course.meeting.endDate,
+                        scheduleType: course.scheduleType,
+                        term: course.term
+                    };
+                    
+                    // Make clickable to show modal
+                    item.addEventListener("click", () => {
+                        openModal(eventData);
+                    });
+                    
+                    // Add tooltip on hover
+                    item.addEventListener("mouseenter", (e) => {
+                        if (!tooltipsEnabled) return;
+                        const rect = item.getBoundingClientRect();
+                        tooltip.innerHTML = `
+                            <div class="tooltip-title">${course.subject} ${course.number} — ${course.title}</div>
+                            <div class="tooltip-row">Section: <span>${course.section}</span></div>
+                            <div class="tooltip-row">CRN: <span>${course.crn}</span></div>
+                            <div class="tooltip-row">Credits: <span>${course.credits}</span></div>
+                            ${course.instructor ? `<div class="tooltip-row">Instructor: <span>${course.instructor}</span></div>` : ""}
+                            <div class="tooltip-row">Format: <span>Online Asynchronous</span></div>
+                        `;
+                        
+                        // Position tooltip to the LEFT of async card (in right sidebar)
+                        // This prevents blocking cards below in the list
+                        const tooltipWidth = 260; // approximate width
+                        const x = rect.left - tooltipWidth - 10; // 10px gap
+                        const y = rect.top + (rect.height / 2);
+                        
+                        tooltip.style.left = Math.max(10, x) + "px";
+                        tooltip.style.top = y + "px";
+                        tooltip.style.transform = "translateY(-50%)"; // Center vertically
+                        tooltip.classList.add("visible");
+                    });
+                    
+                    item.addEventListener("mouseleave", () => {
+                        tooltip.classList.remove("visible");
+                        tooltip.style.transform = ""; // Reset transform for grid tooltips
+                    });
+                    
+                    asyncList.appendChild(item);
+                });
             }
 
             function connectFilters(prefix) {
@@ -784,12 +1008,6 @@ html = '''<!DOCTYPE html>
                     });
                 });
 
-                const distEl = container.querySelector('input[data-role="distance"]');
-                distEl.addEventListener("change", () => {
-                    state[prefix].includeDistance = distEl.checked;
-                    renderCalendar(prefix);
-                });
-
                 const searchEl = container.querySelector('input[data-role="search"]');
                 let debounce;
                 searchEl.addEventListener("input", () => {
@@ -805,14 +1023,13 @@ html = '''<!DOCTYPE html>
                         days: new Set(dayIds),
                         startHour: 8, endHour: 21,
                         levels: new Set(defaultLevels[prefix]),
-                        includeDistance: true, search: ""
+                        search: ""
                     };
                     container.querySelectorAll('input[data-role="day"]').forEach(cb => cb.checked = true);
                     startEl.value = 8; endEl.value = 21;
                     container.querySelectorAll('input[data-role="level"]').forEach(cb => {
                         cb.checked = defaultLevels[prefix].has(parseInt(cb.value, 10));
                     });
-                    distEl.checked = true;
                     searchEl.value = "";
                     renderCalendar(prefix);
                 });
@@ -890,7 +1107,8 @@ html = '''<!DOCTYPE html>
     </body>
 </html>'''
 
-with open('SPBS202620ScheduleFall.html', 'w', encoding='utf-8') as f:
+output_filename = f'SPBS{TERM_CODE}Schedule.html'
+with open(output_filename, 'w', encoding='utf-8') as f:
     f.write(html)
 
 print(f"Written: {len(html)} chars")
